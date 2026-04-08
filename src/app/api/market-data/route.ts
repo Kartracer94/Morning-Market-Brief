@@ -32,16 +32,67 @@ async function stockSnapshots(tickers: string[]) {
   return map;
 }
 
-// Gainers / Losers
-async function fetchMovers(direction: "gainers" | "losers") {
-  const d = await pgFetch(`/v2/snapshot/locale/us/markets/stocks/${direction}`);
-  if (!d?.tickers) return [];
-  return d.tickers.slice(0, 8).map((t: Record<string, unknown>) => ({
+// ── Index constituents (SPY + QQQ + DIA) ────────────────────────────────
+
+const INDEX_CONSTITUENTS = new Set([
+  "AAPL","ABBV","ABNB","ABT","ACN","ADBE","ADI","ADM","ADP","ADSK","AEE","AEP","AES","AFL","AIG",
+  "AIZ","AJG","AKAM","ALB","ALGN","ALK","ALL","ALLE","AMAT","AMCR","AMD","AME","AMGN","AMP","AMT",
+  "AMZN","ANET","ANSS","AON","AOS","APA","APD","APH","APP","APTV","ARE","ARM","ASML","ATO","AVGO",
+  "AVY","AWK","AXP","AZN","AZO","BA","BAC","BAX","BBWI","BBY","BDX","BEN","BIIB","BIO","BK",
+  "BKNG","BKR","BLDR","BLK","BMY","BR","BRO","BSX","BWA","BXP","C","CAG","CAH","CARR",
+  "CAT","CB","CBOE","CBRE","CCI","CCL","CDAY","CDNS","CDW","CE","CEG","CF","CFG","CHD","CHRW",
+  "CHTR","CI","CINF","CL","CLX","CMA","CMCSA","CME","CMG","CMI","CMS","CNC","CNP","COF","COIN",
+  "COO","COP","COST","CPAY","CPB","CPRT","CPT","CRL","CRM","CRWD","CSCO","CSGP","CSX","CTAS","CTRA",
+  "CTSH","CTVA","CVS","CVX","CZR","D","DAL","DASH","DAY","DD","DDOG","DE","DECK","DFS","DG",
+  "DGX","DHI","DHR","DIS","DLTR","DOV","DOW","DPZ","DRI","DTE","DUK","DVA","DVN","DXCM","EA",
+  "EBAY","ECL","ED","EFX","EIX","EL","EMN","EMR","ENPH","EOG","EPAM","EQIX","EQR","EQT","ES",
+  "ESS","ETN","ETR","EVRG","EW","EXC","EXPD","EXPE","EXR","F","FANG","FAST","FBIN","FCX","FDS",
+  "FDX","FE","FFIV","FI","FICO","FIS","FISV","FITB","FMC","FOX","FOXA","FRT","FSLR","FTNT","FTV",
+  "GD","GDDY","GE","GEHC","GEN","GFS","GILD","GIS","GL","GLW","GM","GNRC","GOOG","GOOGL","GPC",
+  "GPN","GRMN","GS","GWW","HAL","HAS","HBAN","HCA","HD","HOLX","HON","HPE","HPQ","HRL","HSIC",
+  "HST","HSY","HUBB","HUM","HWM","IBM","ICE","IDXX","IEX","IFF","ILMN","INCY","INTC","INTU","INVH",
+  "IP","IPG","IQV","IR","IRM","ISRG","IT","ITW","IVZ","J","JBHT","JBL","JCI","JKHY","JNJ",
+  "JNPR","JPM","K","KDP","KEY","KEYS","KHC","KIM","KLAC","KMB","KMI","KMX","KO","KR","KVUE",
+  "L","LDOS","LEN","LH","LHX","LIN","LKQ","LLY","LMT","LNT","LOW","LRCX","LULU","LUV","LVS",
+  "LW","LYB","LYV","MA","MAA","MAR","MAS","MCD","MCHP","MCK","MCO","MDB","MDLZ","MDT","MELI",
+  "MET","META","MGM","MHK","MKC","MKTX","MLM","MMC","MMM","MNST","MO","MOH","MOS","MPC","MPWR",
+  "MRK","MRNA","MRO","MRVL","MS","MSCI","MSFT","MSI","MTB","MTCH","MTD","MU","NCLH","NDAQ","NDSN",
+  "NEE","NEM","NFLX","NI","NKE","NOC","NOW","NRG","NSC","NTAP","NTRS","NUE","NVDA","NVR","NWS",
+  "NWSA","NXPI","O","ODFL","OGN","OKE","OMC","ON","ORCL","ORLY","OTIS","OXY","PANW","PAYC","PAYX",
+  "PCAR","PCG","PDD","PEG","PEP","PFE","PFG","PG","PGR","PH","PHM","PKG","PLD","PLTR","PM",
+  "PNC","PNR","PNW","PODD","POOL","PPG","PPL","PRU","PSA","PSX","PTC","PVH","PWR","PYPL","QCOM",
+  "QRVO","RCL","RE","REG","REGN","RF","RHI","RJF","RL","RMD","ROK","ROL","ROP","ROST","RSG",
+  "RTX","RVTY","SBAC","SBUX","SCHW","SEE","SHW","SJM","SLB","SMCI","SNA","SNPS","SO","SPG","SPGI",
+  "SRE","STE","STLD","STT","STX","STZ","SWK","SWKS","SYF","SYK","SYY","T","TAP","TDG","TDY",
+  "TEAM","TECH","TEL","TER","TFC","TFX","TGT","TJX","TMO","TMUS","TPR","TRGP","TRMB","TROW","TRV",
+  "TSCO","TSLA","TSN","TT","TTD","TTWO","TXN","TXT","TYL","UAL","UDR","UHS","ULTA","UNH","UNP",
+  "UPS","URI","USB","V","VICI","VLO","VLTO","VMC","VRSK","VRSN","VRTX","VST","VTR","VTRS","VZ",
+  "WAB","WAT","WBA","WBD","WDAY","WDC","WEC","WELL","WFC","WHR","WM","WMB","WMT","WRB","WRK",
+  "WST","WTW","WY","WYNN","XEL","XOM","XRAY","XYL","YUM","ZBH","ZBRA","ZION","ZS","ZTS",
+]);
+
+// Gainers / Losers — filtered to SPY + QQQ + DIA constituents
+async function fetchIndexMovers() {
+  const d = await pgFetch("/v2/snapshot/locale/us/markets/stocks/tickers");
+  if (!d?.tickers) return { gainers: [], losers: [] };
+
+  interface TickerSnap { ticker: string; todaysChange: number; todaysChangePerc: number; day?: { c: number }; lastTrade?: { p: number } }
+
+  const filtered = (d.tickers as TickerSnap[]).filter((t) => INDEX_CONSTITUENTS.has(t.ticker));
+
+  const sorted = [...filtered].sort((a, b) => (b.todaysChangePerc ?? 0) - (a.todaysChangePerc ?? 0));
+
+  const toMover = (t: TickerSnap) => ({
     symbol: t.ticker,
-    price: (t.day as Record<string, number>)?.c || (t.lastTrade as Record<string, number>)?.p || 0,
-    chg: (t as Record<string, number>).todaysChange ?? 0,
-    pct: (t as Record<string, number>).todaysChangePerc ?? 0,
-  }));
+    price: t.day?.c || t.lastTrade?.p || 0,
+    chg: t.todaysChange ?? 0,
+    pct: t.todaysChangePerc ?? 0,
+  });
+
+  const gainers = sorted.slice(0, 10).map(toMover);
+  const losers = sorted.slice(-10).reverse().map(toMover);
+
+  return { gainers, losers };
 }
 
 // ── Yahoo Finance v8 chart API for FX, DXY, Crypto ─────────────────────
@@ -245,11 +296,8 @@ export async function POST(req: NextRequest) {
     }
 
     case "movers": {
-      const [gainers, losers] = await Promise.all([
-        fetchMovers("gainers"),
-        fetchMovers("losers"),
-      ]);
-      return NextResponse.json({ data: { gainers, losers } });
+      const data = await fetchIndexMovers();
+      return NextResponse.json({ data });
     }
 
     default:

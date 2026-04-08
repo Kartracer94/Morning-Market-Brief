@@ -302,7 +302,7 @@ export default function Dashboard() {
         <div className="col">
           <div className="sh">
             <span className="tg" style={{ color: "var(--grn)" }}>▲ Top Gainers</span>
-            <span className="ct">Polygon.io</span>
+            <span className="ct">SPY · QQQ · DIA</span>
           </div>
           {loading.movers ? (
             <Skeleton rows={8} />
