@@ -181,19 +181,12 @@ body {
 .cal-val { color: var(--t2); }
 .cal-act { color: var(--t1); font-weight: 600; }
 
-/* ── Twitter feeds ── */
-.tw-lbl {
-  padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 9px;
-  font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;
-  color: var(--cyn); background: var(--bg2); border-bottom: 1px solid var(--bdr);
-  display: flex; align-items: center; gap: 6px;
+/* ── TradingView chart ── */
+.tv-chart-wrap {
+  border-bottom: 1px solid var(--bdr); overflow: hidden;
 }
-.tw-lbl::before {
-  content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--cyn);
-}
-.tw-wrap {
-  border-bottom: 1px solid var(--bdr); overflow: hidden; min-height: 200px;
-}
+.tv-chart-wrap .tradingview-widget-container { width: 100% !important; }
+.tradingview-widget-copyright { display: none !important; }
 
 /* ── Skeleton ── */
 .sk-row { padding: 11px 14px; border-bottom: 1px solid var(--bdr); display: flex; justify-content: space-between; gap: 12px; }

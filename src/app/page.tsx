@@ -64,47 +64,48 @@ function QuoteRow({ item }: { item: QuoteItem }) {
   );
 }
 
-// ── Twitter Embed ──
-function TwitterFeed({ handle, label }: { handle: string; label?: string }) {
+// ── TradingView Chart ──
+function TVChart({ symbol, exchange, height = 400 }: { symbol: string; exchange: string; height?: number }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "tradingview-widget-container";
+    wrap.style.height = `${height}px`;
+    const inner = document.createElement("div");
+    inner.id = `tv-chart-${symbol}`;
+    wrap.appendChild(inner);
+    const sc = document.createElement("script");
+    sc.type = "text/javascript";
+    sc.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+    sc.async = true;
+    sc.textContent = JSON.stringify({
+      symbol: `${exchange}:${symbol}`,
+      width: "100%",
+      height,
+      autosize: false,
+      interval: "5",
+      timezone: "America/New_York",
+      theme: "dark",
+      style: "1",
+      locale: "en",
+      backgroundColor: "rgba(6, 8, 12, 1)",
+      gridColor: "rgba(21, 28, 40, 0.6)",
+      hide_top_toolbar: false,
+      hide_legend: false,
+      allow_symbol_change: false,
+      save_image: false,
+      hide_volume: false,
+      support_host: "https://www.tradingview.com",
+    });
+    wrap.appendChild(sc);
+    el.appendChild(wrap);
+  }, [symbol, exchange, height]);
 
-    const a = document.createElement("a");
-    a.className = "twitter-timeline";
-    a.href = `https://twitter.com/${handle}`;
-    a.setAttribute("data-theme", "dark");
-    a.setAttribute("data-chrome", "noheader nofooter noborders transparent");
-    a.setAttribute("data-tweet-limit", "8");
-    a.setAttribute("data-height", "400");
-    a.setAttribute("data-dnt", "true");
-    a.textContent = `Loading @${handle}…`;
-    el.appendChild(a);
-
-    // Load widgets.js if not already loaded
-    const win = window as unknown as Record<string, unknown>;
-    if (!win.__twttr_loaded) {
-      win.__twttr_loaded = true;
-      const sc = document.createElement("script");
-      sc.src = "https://platform.twitter.com/widgets.js";
-      sc.async = true;
-      sc.charset = "utf-8";
-      document.head.appendChild(sc);
-    } else {
-      const twttr = win.twttr as { widgets?: { load: (el: HTMLElement) => void } } | undefined;
-      twttr?.widgets?.load(el);
-    }
-  }, [handle]);
-
-  return (
-    <>
-      <div className="tw-lbl">{label || `@${handle}`}</div>
-      <div className="tw-wrap" ref={ref} />
-    </>
-  );
+  return <div className="tv-chart-wrap" ref={ref} />;
 }
 
 // ── Main ──
@@ -262,10 +263,10 @@ export default function Dashboard() {
           ) : null}
 
           <div className="sh">
-            <span className="tg" style={{ color: "var(--cyn)" }}>X / Twitter</span>
+            <span className="tg">IOT</span>
+            <span className="ct">Samsara · TradingView</span>
           </div>
-          <TwitterFeed handle="zerohedge" />
-          <TwitterFeed handle="DeItaone" label="@DeItaone · Walter Bloomberg" />
+          <TVChart symbol="IOT" exchange="NYSE" height={400} />
         </div>
 
         {/* ── CENTER: Sectors + Calendar ── */}
