@@ -64,6 +64,49 @@ function QuoteRow({ item }: { item: QuoteItem }) {
   );
 }
 
+// ── Twitter Embed ──
+function TwitterFeed({ handle, label }: { handle: string; label?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.innerHTML = "";
+
+    const a = document.createElement("a");
+    a.className = "twitter-timeline";
+    a.href = `https://twitter.com/${handle}`;
+    a.setAttribute("data-theme", "dark");
+    a.setAttribute("data-chrome", "noheader nofooter noborders transparent");
+    a.setAttribute("data-tweet-limit", "8");
+    a.setAttribute("data-height", "400");
+    a.setAttribute("data-dnt", "true");
+    a.textContent = `Loading @${handle}…`;
+    el.appendChild(a);
+
+    // Load widgets.js if not already loaded
+    const win = window as unknown as Record<string, unknown>;
+    if (!win.__twttr_loaded) {
+      win.__twttr_loaded = true;
+      const sc = document.createElement("script");
+      sc.src = "https://platform.twitter.com/widgets.js";
+      sc.async = true;
+      sc.charset = "utf-8";
+      document.head.appendChild(sc);
+    } else {
+      const twttr = win.twttr as { widgets?: { load: (el: HTMLElement) => void } } | undefined;
+      twttr?.widgets?.load(el);
+    }
+  }, [handle]);
+
+  return (
+    <>
+      <div className="tw-lbl">{label || `@${handle}`}</div>
+      <div className="tw-wrap" ref={ref} />
+    </>
+  );
+}
+
 // ── Main ──
 export default function Dashboard() {
   const [clock, setClock] = useState("");
@@ -217,6 +260,12 @@ export default function Dashboard() {
           ) : fx ? (
             fx.map((f) => <QuoteRow key={f.symbol} item={f} />)
           ) : null}
+
+          <div className="sh">
+            <span className="tg" style={{ color: "var(--cyn)" }}>X / Twitter</span>
+          </div>
+          <TwitterFeed handle="zerohedge" />
+          <TwitterFeed handle="DeItaone" label="@DeItaone · Walter Bloomberg" />
         </div>
 
         {/* ── CENTER: Sectors + Calendar ── */}

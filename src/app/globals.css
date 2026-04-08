@@ -181,6 +181,20 @@ body {
 .cal-val { color: var(--t2); }
 .cal-act { color: var(--t1); font-weight: 600; }
 
+/* ── Twitter feeds ── */
+.tw-lbl {
+  padding: 8px 12px; font-family: 'JetBrains Mono', monospace; font-size: 9px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--cyn); background: var(--bg2); border-bottom: 1px solid var(--bdr);
+  display: flex; align-items: center; gap: 6px;
+}
+.tw-lbl::before {
+  content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--cyn);
+}
+.tw-wrap {
+  border-bottom: 1px solid var(--bdr); overflow: hidden; min-height: 200px;
+}
+
 /* ── Skeleton ── */
 .sk-row { padding: 11px 14px; border-bottom: 1px solid var(--bdr); display: flex; justify-content: space-between; gap: 12px; }
 .sk { height: 10px; border-radius: 3px; background: linear-gradient(90deg, var(--bg2) 25%, var(--bg3) 50%, var(--bg2) 75%); background-size: 200% 100%; animation: sm 1.5s infinite; }
