@@ -7,7 +7,7 @@ import "./globals.css";
 interface QuoteItem { symbol: string; name: string; price: number; chg: number; pct: number }
 interface Mover { symbol: string; price: number; chg: number; pct: number }
 interface MoversData { gainers: Mover[]; losers: Mover[] }
-interface EconEvent { time: string; event: string; estimate?: string | null; consensus?: string | null; previous?: string | null; actual?: string | null; importance: string }
+interface EconEvent { time: string; event: string; forecast?: string | null; previous?: string | null; actual?: string | null; importance: string }
 type WeeklyCalendar = Record<string, EconEvent[]>;
 
 // ── Helpers ──
@@ -259,7 +259,7 @@ export default function Dashboard() {
 
           <div className="sh">
             <span className="tg">US Economic Calendar</span>
-            <span className="ct">This Week · High Importance</span>
+            <span className="ct">Forex Factory · This Week</span>
           </div>
           {loading.events ? (
             <Skeleton rows={6} />
@@ -281,8 +281,7 @@ export default function Dashboard() {
                       <div className="ti">{ev.event}</div>
                       <div className="vl">
                         <span>Act: <b>{ev.actual || "—"}</b></span>
-                        <span>Est: <b>{ev.estimate || "—"}</b></span>
-                        <span>Cons: <b>{ev.consensus || "—"}</b></span>
+                        <span>Fcst: <b>{ev.forecast || "—"}</b></span>
                         <span>Prev: <b>{ev.previous || "—"}</b></span>
                       </div>
                     </div>

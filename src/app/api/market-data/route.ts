@@ -44,9 +44,9 @@ async function fetchMovers(direction: "gainers" | "losers") {
   }));
 }
 
-// ── Yahoo Finance for FX, DXY, Crypto ───────────────────────────────────
+// ── Yahoo Finance v8 chart API for FX, DXY, Crypto ─────────────────────
 
-const YAHOO_SYMBOLS = [
+const FX_SYMBOLS = [
   { symbol: "USD/JPY", name: "Japanese Yen", yahoo: "USDJPY=X" },
   { symbol: "EUR/USD", name: "Euro", yahoo: "EURUSD=X" },
   { symbol: "GBP/USD", name: "British Pound", yahoo: "GBPUSD=X" },
@@ -55,88 +55,75 @@ const YAHOO_SYMBOLS = [
   { symbol: "ETH/USD", name: "Ethereum", yahoo: "ETH-USD" },
 ];
 
-async function fetchYahooQuotes() {
-  const symbols = YAHOO_SYMBOLS.map((s) => s.yahoo).join(",");
+async function yahooChartQuote(ticker: string) {
   try {
     const res = await fetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=2d&interval=1d`,
       {
-        headers: { "User-Agent": "Mozilla/5.0" },
-        signal: AbortSignal.timeout(10000),
+        headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
+        signal: AbortSignal.timeout(8000),
       }
     );
-    if (!res.ok) throw new Error(`Yahoo ${res.status}`);
+    if (!res.ok) return null;
     const data = await res.json();
-    const quotes = data?.quoteResponse?.result;
-    if (!Array.isArray(quotes)) return null;
-
-    return YAHOO_SYMBOLS.map((s) => {
-      const q = quotes.find((r: Record<string, unknown>) => r.symbol === s.yahoo);
-      if (!q) return { ...s, price: 0, chg: 0, pct: 0 };
-      return {
-        ...s,
-        price: q.regularMarketPrice ?? 0,
-        chg: q.regularMarketChange ?? 0,
-        pct: q.regularMarketChangePercent ?? 0,
-      };
-    });
-  } catch (e) {
-    console.error("Yahoo Finance error:", e);
+    const meta = data?.chart?.result?.[0]?.meta;
+    if (!meta) return null;
+    const price = meta.regularMarketPrice ?? 0;
+    const prev = meta.chartPreviousClose ?? meta.previousClose ?? 0;
+    const chg = prev ? price - prev : 0;
+    const pct = prev ? ((price - prev) / prev) * 100 : 0;
+    return { price, chg, pct };
+  } catch {
     return null;
   }
 }
 
-// ── Econ calendar — full week, high importance ──────────────────────────
-
-function getWeekRange() {
-  const now = new Date();
-  const day = now.getDay(); // 0=Sun
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-  const friday = new Date(monday);
-  friday.setDate(monday.getDate() + 4);
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return { start: fmt(monday), end: fmt(friday) };
+async function fetchFXQuotes() {
+  const results = await Promise.all(FX_SYMBOLS.map((s) => yahooChartQuote(s.yahoo)));
+  return FX_SYMBOLS.map((s, i) => ({
+    ...s,
+    ...(results[i] || { price: 0, chg: 0, pct: 0 }),
+  }));
 }
 
-interface TEEvent {
-  Date: string;
-  Event: string;
-  Actual: string | null;
-  Forecast: string | null;
-  TEForecast: string | null;
-  Previous: string | null;
-  Importance: number;
-  Country: string;
+// ── Econ calendar — Forex Factory, full week, grouped by day ────────────
+
+interface FFEvent {
+  title: string;
+  country: string;
+  date: string;
+  impact: string;
+  forecast: string;
+  previous: string;
+  actual?: string;
 }
 
 async function fetchWeeklyEconCalendar() {
-  const { start, end } = getWeekRange();
-  const url = `https://api.tradingeconomics.com/calendar/country/united%20states/${start}/${end}?c=guest:guest&f=json`;
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) throw new Error("TE API error");
-    const a: TEEvent[] = await r.json();
-    if (!Array.isArray(a)) return {};
+    const r = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) throw new Error("FF API error");
+    const events: FFEvent[] = await r.json();
+    if (!Array.isArray(events)) return {};
 
-    const filtered = a
-      .filter((e) => e.Importance >= 2 && e.Country === "United States")
-      .sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
+    // Filter to US (USD) events, medium + high impact
+    const filtered = events
+      .filter((e) => e.country === "USD" && (e.impact === "High" || e.impact === "Medium"))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Group by date
+    // Group by day
     const grouped: Record<string, {
       time: string;
       event: string;
       actual: string | null;
-      estimate: string | null;
-      consensus: string | null;
+      forecast: string | null;
       previous: string | null;
       importance: string;
     }[]> = {};
 
     for (const e of filtered) {
-      const d = new Date(e.Date);
+      const d = new Date(e.date);
       const dateKey = d.toLocaleDateString("en-US", {
         weekday: "long",
         month: "short",
@@ -148,17 +135,17 @@ async function fetchWeeklyEconCalendar() {
         time: d.toLocaleTimeString("en-US", {
           hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/New_York",
         }) + " ET",
-        event: e.Event,
-        actual: e.Actual || null,
-        estimate: e.TEForecast || null,
-        consensus: e.Forecast || null,
-        previous: e.Previous || null,
-        importance: e.Importance >= 3 ? "high" : "medium",
+        event: e.title,
+        actual: e.actual || null,
+        forecast: e.forecast || null,
+        previous: e.previous || null,
+        importance: e.impact === "High" ? "high" : "medium",
       });
     }
 
     return grouped;
-  } catch {
+  } catch (err) {
+    console.error("Forex Factory calendar error:", err);
     return {};
   }
 }
@@ -193,10 +180,9 @@ const SECTOR_TICKERS = [
 export async function POST(req: NextRequest) {
   const { section, briefData } = await req.json();
 
-  // FX doesn't need Polygon key
+  // FX via Yahoo v8 chart API (no key needed)
   if (section === "fx") {
-    const data = await fetchYahooQuotes();
-    if (!data) return NextResponse.json({ error: "Could not fetch FX data" }, { status: 500 });
+    const data = await fetchFXQuotes();
     return NextResponse.json({ data });
   }
 
