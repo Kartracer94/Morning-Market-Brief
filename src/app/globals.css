@@ -142,6 +142,19 @@ body {
   min-width: 52px; text-align: right;
 }
 
+/* ── Calendar day headers ── */
+.cal-day-hdr {
+  padding: 8px 14px; font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--t2); background: var(--bg2); border-bottom: 1px solid var(--bdr);
+  display: flex; align-items: center; gap: 8px;
+}
+.cal-today { color: var(--amb); }
+.cal-today-badge {
+  font-size: 8px; padding: 1px 5px; border-radius: 3px;
+  background: rgba(245, 158, 11, 0.15); color: var(--amb); letter-spacing: 1px;
+}
+
 /* ── Econ events ── */
 .ev {
   padding: 8px 14px; border-bottom: 1px solid var(--bdr); transition: background 0.12s;
@@ -156,7 +169,7 @@ body {
 .ev.hi .ti { font-weight: 700; }
 .ev .vl {
   font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--t3);
-  display: flex; gap: 12px;
+  display: flex; gap: 10px; flex-wrap: wrap;
 }
 .ev .vl b { color: var(--t2); font-weight: 400; }
 

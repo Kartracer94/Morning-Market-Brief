@@ -7,7 +7,8 @@ import "./globals.css";
 interface QuoteItem { symbol: string; name: string; price: number; chg: number; pct: number }
 interface Mover { symbol: string; price: number; chg: number; pct: number }
 interface MoversData { gainers: Mover[]; losers: Mover[] }
-interface EconEvent { time: string; event: string; forecast?: string | null; previous?: string | null; actual?: string | null; importance: string }
+interface EconEvent { time: string; event: string; estimate?: string | null; consensus?: string | null; previous?: string | null; actual?: string | null; importance: string }
+type WeeklyCalendar = Record<string, EconEvent[]>;
 
 // ── Helpers ──
 function fmtP(p?: number) {
@@ -30,9 +31,7 @@ function Skeleton({ rows = 4 }: { rows?: number }) {
     <>
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="sk-row">
-          <div className="sk a" />
-          <div className="sk b" />
-          <div className="sk c" />
+          <div className="sk a" /><div className="sk b" /><div className="sk c" />
         </div>
       ))}
     </>
@@ -72,7 +71,7 @@ export default function Dashboard() {
   const [fx, setFx] = useState<QuoteItem[] | null>(null);
   const [sectors, setSectors] = useState<QuoteItem[] | null>(null);
   const [movers, setMovers] = useState<MoversData | null>(null);
-  const [events, setEvents] = useState<EconEvent[] | null>(null);
+  const [events, setEvents] = useState<WeeklyCalendar | null>(null);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [status, setStatus] = useState("Initializing");
@@ -139,14 +138,12 @@ export default function Dashboard() {
     setStatus(`Updated ${t}`);
   }, [fetchMarkets, fetchFX, fetchSectors, fetchMovers, fetchEvents]);
 
-  // Auto-fetch on mount + refresh every 30s
+  // Fetch once on mount only — no auto-refresh
   useEffect(() => {
     if (!hasFetched.current) {
       hasFetched.current = true;
       refreshAll();
     }
-    const id = setInterval(refreshAll, 30000);
-    return () => clearInterval(id);
   }, [refreshAll]);
 
   const anyLoading = Object.values(loading).some(Boolean);
@@ -167,6 +164,11 @@ export default function Dashboard() {
     }
     setLoad("email", false);
   };
+
+  // Check if a day label is today
+  const todayLabel = new Date().toLocaleDateString("en-US", {
+    weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York",
+  });
 
   return (
     <>
@@ -194,7 +196,7 @@ export default function Dashboard() {
         <div className="col">
           <div className="sh">
             <span className="tg">Market Overview</span>
-            <span className="ct">Polygon.io · 30s refresh</span>
+            <span className="ct">Polygon.io</span>
           </div>
           {loading.markets ? (
             <Skeleton rows={8} />
@@ -206,44 +208,18 @@ export default function Dashboard() {
 
           <div className="sh">
             <span className="tg">FX, Dollar &amp; Crypto</span>
-            <span className="ct">Polygon.io</span>
+            <span className="ct">Yahoo Finance</span>
           </div>
           {loading.fx ? (
-            <Skeleton rows={3} />
+            <Skeleton rows={6} />
           ) : errors.fx ? (
             <div className="msg err-msg">⚠ {errors.fx}</div>
           ) : fx ? (
             fx.map((f) => <QuoteRow key={f.symbol} item={f} />)
           ) : null}
-
-          <div className="sh">
-            <span className="tg">Economic Calendar</span>
-            <span className="ct">US · High Importance</span>
-          </div>
-          {loading.events ? (
-            <Skeleton rows={3} />
-          ) : errors.events ? (
-            <div className="msg err-msg">⚠ {errors.events}</div>
-          ) : events ? (
-            events.length === 0 ? (
-              <div className="msg">No high-importance US events today</div>
-            ) : (
-              events.map((ev, i) => (
-                <div key={i} className={`ev ${ev.importance === "high" ? "hi" : ""}`}>
-                  <div className="t">{ev.time}</div>
-                  <div className="ti">{ev.event}</div>
-                  <div className="vl">
-                    <span>Act: <b>{ev.actual || "—"}</b></span>
-                    <span>Fcst: <b>{ev.forecast || "—"}</b></span>
-                    <span>Prev: <b>{ev.previous || "—"}</b></span>
-                  </div>
-                </div>
-              ))
-            )
-          ) : null}
         </div>
 
-        {/* ── CENTER: Sectors ── */}
+        {/* ── CENTER: Sectors + Calendar ── */}
         <div className="col">
           <div className="sh">
             <span className="tg">Sector ETFs</span>
@@ -279,6 +255,41 @@ export default function Dashboard() {
                 </div>
               );
             })
+          ) : null}
+
+          <div className="sh">
+            <span className="tg">US Economic Calendar</span>
+            <span className="ct">This Week · High Importance</span>
+          </div>
+          {loading.events ? (
+            <Skeleton rows={6} />
+          ) : errors.events ? (
+            <div className="msg err-msg">⚠ {errors.events}</div>
+          ) : events ? (
+            Object.keys(events).length === 0 ? (
+              <div className="msg">No high-importance US events this week</div>
+            ) : (
+              Object.entries(events).map(([day, dayEvents]) => (
+                <div key={day}>
+                  <div className={`cal-day-hdr ${day === todayLabel ? "cal-today" : ""}`}>
+                    {day}
+                    {day === todayLabel && <span className="cal-today-badge">TODAY</span>}
+                  </div>
+                  {dayEvents.map((ev, i) => (
+                    <div key={i} className={`ev ${ev.importance === "high" ? "hi" : ""}`}>
+                      <div className="t">{ev.time}</div>
+                      <div className="ti">{ev.event}</div>
+                      <div className="vl">
+                        <span>Act: <b>{ev.actual || "—"}</b></span>
+                        <span>Est: <b>{ev.estimate || "—"}</b></span>
+                        <span>Cons: <b>{ev.consensus || "—"}</b></span>
+                        <span>Prev: <b>{ev.previous || "—"}</b></span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))
+            )
           ) : null}
         </div>
 

@@ -17,18 +17,6 @@ async function pgFetch(path: string) {
   return res.json();
 }
 
-// Stock/ETF snapshot → { price, chg, pct }
-async function stockSnapshot(ticker: string) {
-  const d = await pgFetch(`/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}`);
-  const t = d?.ticker;
-  if (!t) return null;
-  return {
-    price: t.day?.c || t.lastTrade?.p || t.prevDay?.c || 0,
-    chg: t.todaysChange ?? 0,
-    pct: t.todaysChangePerc ?? 0,
-  };
-}
-
 // Batch stock snapshots
 async function stockSnapshots(tickers: string[]) {
   const d = await pgFetch(`/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers.join(",")}`);
@@ -44,30 +32,6 @@ async function stockSnapshots(tickers: string[]) {
   return map;
 }
 
-// Forex snapshot
-async function forexSnapshot(ticker: string) {
-  const d = await pgFetch(`/v2/snapshot/locale/global/markets/forex/tickers/${ticker}`);
-  const t = d?.ticker;
-  if (!t) return null;
-  const price = t.day?.c || t.lastQuote?.a || t.prevDay?.c || 0;
-  const prev = t.prevDay?.c || 0;
-  const chg = prev ? price - prev : 0;
-  const pct = prev ? ((price - prev) / prev) * 100 : 0;
-  return { price, chg, pct };
-}
-
-// Crypto snapshot
-async function cryptoSnapshot(ticker: string) {
-  const d = await pgFetch(`/v2/snapshot/locale/global/markets/crypto/tickers/${ticker}`);
-  const t = d?.ticker;
-  if (!t) return null;
-  const price = t.day?.c || t.lastTrade?.p || t.prevDay?.c || 0;
-  const prev = t.prevDay?.c || 0;
-  const chg = prev ? price - prev : 0;
-  const pct = prev ? ((price - prev) / prev) * 100 : 0;
-  return { price, chg, pct };
-}
-
 // Gainers / Losers
 async function fetchMovers(direction: "gainers" | "losers") {
   const d = await pgFetch(`/v2/snapshot/locale/us/markets/stocks/${direction}`);
@@ -80,50 +44,122 @@ async function fetchMovers(direction: "gainers" | "losers") {
   }));
 }
 
-// ── Index snapshots (for DXY) via indices endpoint ──────────────────────
+// ── Yahoo Finance for FX, DXY, Crypto ───────────────────────────────────
 
-async function indexSnapshot(ticker: string) {
-  // Try the indices snapshot endpoint
-  const d = await pgFetch(`/v3/snapshot/indices?ticker=${ticker}`);
-  if (d?.results?.[0]) {
-    const r = d.results[0];
-    const price = r.value ?? r.session?.close ?? 0;
-    const prev = r.session?.previous_close ?? 0;
-    const chg = prev ? price - prev : (r.session?.change ?? 0);
-    const pct = prev ? ((price - prev) / prev) * 100 : (r.session?.change_percent ?? 0);
-    return { price, chg, pct };
+const YAHOO_SYMBOLS = [
+  { symbol: "USD/JPY", name: "Japanese Yen", yahoo: "USDJPY=X" },
+  { symbol: "EUR/USD", name: "Euro", yahoo: "EURUSD=X" },
+  { symbol: "GBP/USD", name: "British Pound", yahoo: "GBPUSD=X" },
+  { symbol: "DXY", name: "Dollar Index", yahoo: "DX-Y.NYB" },
+  { symbol: "BTC/USD", name: "Bitcoin", yahoo: "BTC-USD" },
+  { symbol: "ETH/USD", name: "Ethereum", yahoo: "ETH-USD" },
+];
+
+async function fetchYahooQuotes() {
+  const symbols = YAHOO_SYMBOLS.map((s) => s.yahoo).join(",");
+  try {
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`,
+      {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+    if (!res.ok) throw new Error(`Yahoo ${res.status}`);
+    const data = await res.json();
+    const quotes = data?.quoteResponse?.result;
+    if (!Array.isArray(quotes)) return null;
+
+    return YAHOO_SYMBOLS.map((s) => {
+      const q = quotes.find((r: Record<string, unknown>) => r.symbol === s.yahoo);
+      if (!q) return { ...s, price: 0, chg: 0, pct: 0 };
+      return {
+        ...s,
+        price: q.regularMarketPrice ?? 0,
+        chg: q.regularMarketChange ?? 0,
+        pct: q.regularMarketChangePercent ?? 0,
+      };
+    });
+  } catch (e) {
+    console.error("Yahoo Finance error:", e);
+    return null;
   }
-  return null;
 }
 
-// ── Econ calendar (Trading Economics free) ──────────────────────────────
+// ── Econ calendar — full week, high importance ──────────────────────────
 
-async function fetchEconCalendar() {
-  const d = new Date();
-  const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const url = `https://api.tradingeconomics.com/calendar/country/united%20states/${ds}/${ds}?c=guest:guest&f=json`;
+function getWeekRange() {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+  const friday = new Date(monday);
+  friday.setDate(monday.getDate() + 4);
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return { start: fmt(monday), end: fmt(friday) };
+}
+
+interface TEEvent {
+  Date: string;
+  Event: string;
+  Actual: string | null;
+  Forecast: string | null;
+  TEForecast: string | null;
+  Previous: string | null;
+  Importance: number;
+  Country: string;
+}
+
+async function fetchWeeklyEconCalendar() {
+  const { start, end } = getWeekRange();
+  const url = `https://api.tradingeconomics.com/calendar/country/united%20states/${start}/${end}?c=guest:guest&f=json`;
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!r.ok) throw new Error("TE API error");
-    const a = await r.json();
-    if (!Array.isArray(a)) return [];
-    return a
-      .filter((e: Record<string, unknown>) => (e.Importance as number) >= 2 && e.Country === "United States")
-      .sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
-        new Date(a.Date as string).getTime() - new Date(b.Date as string).getTime()
-      )
-      .map((e: Record<string, unknown>) => ({
-        time: new Date(e.Date as string).toLocaleTimeString("en-US", {
+    const a: TEEvent[] = await r.json();
+    if (!Array.isArray(a)) return {};
+
+    const filtered = a
+      .filter((e) => e.Importance >= 2 && e.Country === "United States")
+      .sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
+
+    // Group by date
+    const grouped: Record<string, {
+      time: string;
+      event: string;
+      actual: string | null;
+      estimate: string | null;
+      consensus: string | null;
+      previous: string | null;
+      importance: string;
+    }[]> = {};
+
+    for (const e of filtered) {
+      const d = new Date(e.Date);
+      const dateKey = d.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+        timeZone: "America/New_York",
+      });
+      if (!grouped[dateKey]) grouped[dateKey] = [];
+      grouped[dateKey].push({
+        time: d.toLocaleTimeString("en-US", {
           hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/New_York",
         }) + " ET",
         event: e.Event,
         actual: e.Actual || null,
-        forecast: e.Forecast || null,
+        estimate: e.TEForecast || null,
+        consensus: e.Forecast || null,
         previous: e.Previous || null,
-        importance: (e.Importance as number) >= 3 ? "high" : "medium",
-      }));
+        importance: e.Importance >= 3 ? "high" : "medium",
+      });
+    }
+
+    return grouped;
   } catch {
-    return [];
+    return {};
   }
 }
 
@@ -155,35 +191,60 @@ const SECTOR_TICKERS = [
 ];
 
 export async function POST(req: NextRequest) {
+  const { section, briefData } = await req.json();
+
+  // FX doesn't need Polygon key
+  if (section === "fx") {
+    const data = await fetchYahooQuotes();
+    if (!data) return NextResponse.json({ error: "Could not fetch FX data" }, { status: 500 });
+    return NextResponse.json({ data });
+  }
+
+  // Econ calendar doesn't need Polygon key
+  if (section === "events") {
+    const data = await fetchWeeklyEconCalendar();
+    return NextResponse.json({ data });
+  }
+
+  // Email generation (optional — requires ANTHROPIC_API_KEY)
+  if (section === "email" && briefData) {
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicKey) {
+      return NextResponse.json({ error: "ANTHROPIC_API_KEY not set — email generation unavailable" }, { status: 400 });
+    }
+    try {
+      const { default: Anthropic } = await import("@anthropic-ai/sdk");
+      const client = new Anthropic();
+      const res = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2000,
+        system: "You are a senior market strategist writing a morning brief email. Be concise, professional, and insightful.",
+        messages: [{
+          role: "user",
+          content: `Given this morning market brief data, compose a concise plain-text email summary suitable for a daily morning brief. Professional trading desk style. Under 400 words. Data: ${JSON.stringify(briefData)}`,
+        }],
+      });
+      const text = res.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n");
+      return NextResponse.json({ data: text });
+    } catch (e) {
+      console.error("Claude email error:", e);
+      return NextResponse.json({ error: "Failed to generate email" }, { status: 500 });
+    }
+  }
+
+  // Everything else needs Polygon
   if (!POLYGON_KEY) {
     return NextResponse.json({ error: "POLYGON_API_KEY not configured" }, { status: 500 });
   }
 
-  const { section } = await req.json();
-
   switch (section) {
     case "markets": {
-      // Batch fetch market overview ETFs
       const tickers = MARKET_TICKERS.map((t) => t.symbol);
       const snaps = await stockSnapshots(tickers);
       const data = MARKET_TICKERS.map((t) => ({
         ...t,
         ...(snaps[t.symbol] || { price: 0, chg: 0, pct: 0 }),
       }));
-      return NextResponse.json({ data });
-    }
-
-    case "fx": {
-      const [usdjpy, dxy, btc] = await Promise.all([
-        forexSnapshot("C:USDJPY"),
-        indexSnapshot("I:DXY"),
-        cryptoSnapshot("X:BTCUSD"),
-      ]);
-      const data = [
-        { symbol: "USD/JPY", name: "Japanese Yen", ...(usdjpy || { price: 0, chg: 0, pct: 0 }) },
-        { symbol: "DXY", name: "Dollar Index", ...(dxy || { price: 0, chg: 0, pct: 0 }) },
-        { symbol: "BTC/USD", name: "Bitcoin", ...(btc || { price: 0, chg: 0, pct: 0 }) },
-      ];
       return NextResponse.json({ data });
     }
 
@@ -203,38 +264,6 @@ export async function POST(req: NextRequest) {
         fetchMovers("losers"),
       ]);
       return NextResponse.json({ data: { gainers, losers } });
-    }
-
-    case "events": {
-      const data = await fetchEconCalendar();
-      return NextResponse.json({ data });
-    }
-
-    case "email": {
-      // Claude-powered email generation (optional — requires ANTHROPIC_API_KEY)
-      const anthropicKey = process.env.ANTHROPIC_API_KEY;
-      if (!anthropicKey) {
-        return NextResponse.json({ error: "ANTHROPIC_API_KEY not set — email generation unavailable" }, { status: 400 });
-      }
-      const { briefData } = await req.json();
-      try {
-        const { default: Anthropic } = await import("@anthropic-ai/sdk");
-        const client = new Anthropic();
-        const res = await client.messages.create({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 2000,
-          system: "You are a senior market strategist writing a morning brief email. Be concise, professional, and insightful.",
-          messages: [{
-            role: "user",
-            content: `Given this morning market brief data, compose a concise plain-text email summary suitable for a daily morning brief. Professional trading desk style. Under 400 words. Data: ${JSON.stringify(briefData)}`,
-          }],
-        });
-        const text = res.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n");
-        return NextResponse.json({ data: text });
-      } catch (e) {
-        console.error("Claude email error:", e);
-        return NextResponse.json({ error: "Failed to generate email" }, { status: 500 });
-      }
     }
 
     default:
