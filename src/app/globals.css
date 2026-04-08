@@ -112,11 +112,6 @@ body {
 .cg.dn { color: var(--red); background: var(--rbg); }
 .cg.fl { color: var(--t3); background: var(--bg3); }
 
-/* ── TradingView ── */
-.tv-w { border-bottom: 1px solid var(--bdr); height: 132px; overflow: hidden; }
-.tv-w .tradingview-widget-container { height: 132px !important; }
-.tradingview-widget-copyright { display: none !important; }
-
 /* ── Mover rows ── */
 .mover-row {
   display: flex; justify-content: space-between; align-items: flex-start;
