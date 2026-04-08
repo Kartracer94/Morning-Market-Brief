@@ -275,15 +275,21 @@ export default function Dashboard() {
                     {day}
                     {day === todayLabel && <span className="cal-today-badge">TODAY</span>}
                   </div>
+                  <div className="cal-table-hdr">
+                    <span className="cal-col-event">Event</span>
+                    <span className="cal-col">Act</span>
+                    <span className="cal-col">Fcst</span>
+                    <span className="cal-col">Prev</span>
+                  </div>
                   {dayEvents.map((ev, i) => (
-                    <div key={i} className={`ev ${ev.importance === "high" ? "hi" : ""}`}>
-                      <div className="t">{ev.time}</div>
-                      <div className="ti">{ev.event}</div>
-                      <div className="vl">
-                        <span>Act: <b>{ev.actual || "—"}</b></span>
-                        <span>Fcst: <b>{ev.forecast || "—"}</b></span>
-                        <span>Prev: <b>{ev.previous || "—"}</b></span>
+                    <div key={i} className={`cal-row ${ev.importance === "high" ? "cal-hi" : ""}`}>
+                      <div className="cal-col-event">
+                        <span className="cal-time">{ev.time}</span>
+                        <span className="cal-name">{ev.event}</span>
                       </div>
+                      <span className={`cal-col cal-val ${ev.actual ? "cal-act" : ""}`}>{ev.actual || "—"}</span>
+                      <span className="cal-col cal-val">{ev.forecast || "—"}</span>
+                      <span className="cal-col cal-val">{ev.previous || "—"}</span>
                     </div>
                   ))}
                 </div>
