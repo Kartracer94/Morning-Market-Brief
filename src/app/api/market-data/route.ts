@@ -11,8 +11,7 @@ async function askClaude(prompt: string, systemPrompt: string): Promise<string |
       max_tokens: 4000,
       system: systemPrompt,
       messages: [{ role: "user", content: prompt }],
-      // @ts-expect-error — web_search tool type not yet in SDK typings
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      tools: [{ type: "web_search_20250305" as const, name: "web_search" as const }],
     });
     const textBlocks = (res.content || [])
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
