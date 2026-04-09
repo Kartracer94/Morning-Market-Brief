@@ -141,6 +141,35 @@ body {
   font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
   min-width: 52px; text-align: right;
 }
+.sector-clickable { cursor: pointer; }
+.sector-chevron {
+  font-size: 9px; color: var(--t3); min-width: 12px; text-align: center;
+  margin-left: 4px;
+}
+.sector-detail {
+  background: var(--bg2); border-bottom: 1px solid var(--bdr); padding: 6px 14px 8px;
+}
+.sector-detail-loading {
+  font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--t3);
+  text-align: center; padding: 4px;
+}
+.sector-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sector-detail-col { }
+.sector-detail-hdr {
+  font-family: 'JetBrains Mono', monospace; font-size: 8px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;
+}
+.sector-detail-hdr.up { color: var(--grn); }
+.sector-detail-hdr.dn { color: var(--red); }
+.sector-detail-row {
+  display: flex; align-items: center; gap: 6px; padding: 2px 0;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+}
+.sector-detail-sym { font-weight: 600; min-width: 40px; }
+.sector-detail-price { color: var(--t2); font-size: 9px; }
+.sector-detail-pct { margin-left: auto; font-weight: 600; font-size: 9px; }
+.sector-detail-pct.up { color: var(--grn); }
+.sector-detail-pct.dn { color: var(--red); }
 
 /* ── Calendar day headers ── */
 .cal-day-hdr {

@@ -71,28 +71,90 @@ const INDEX_CONSTITUENTS = new Set([
   "WST","WTW","WY","WYNN","XEL","XOM","XRAY","XYL","YUM","ZBH","ZBRA","ZION","ZS","ZTS",
 ]);
 
-// Gainers / Losers — filtered to SPY + QQQ + DIA constituents
-async function fetchIndexMovers() {
+// Ticker name lookup
+async function lookupName(ticker: string): Promise<string> {
+  const d = await pgFetch(`/v3/reference/tickers?ticker=${ticker}&active=true&limit=1`);
+  return d?.results?.[0]?.name || "";
+}
+
+interface TickerSnap { ticker: string; todaysChange: number; todaysChangePerc: number; min?: { c: number }; day?: { c: number }; lastTrade?: { p: number }; prevDay?: { c: number } }
+
+function snapPrice(t: TickerSnap) {
+  return t.min?.c || t.lastTrade?.p || t.day?.c || t.prevDay?.c || 0;
+}
+
+// All snapshots cache (shared between movers and sector drill-down)
+let allSnapsCache: { data: TickerSnap[]; ts: number } | null = null;
+
+async function getAllSnapshots(): Promise<TickerSnap[]> {
+  if (allSnapsCache && Date.now() - allSnapsCache.ts < 30000) return allSnapsCache.data;
   const d = await pgFetch("/v2/snapshot/locale/us/markets/stocks/tickers");
-  if (!d?.tickers) return { gainers: [], losers: [] };
+  const tickers = (d?.tickers as TickerSnap[]) || [];
+  allSnapsCache = { data: tickers, ts: Date.now() };
+  return tickers;
+}
 
-  interface TickerSnap { ticker: string; todaysChange: number; todaysChangePerc: number; min?: { c: number }; day?: { c: number }; lastTrade?: { p: number }; prevDay?: { c: number } }
-
-  const filtered = (d.tickers as TickerSnap[]).filter((t) => INDEX_CONSTITUENTS.has(t.ticker));
-
+// Gainers / Losers — filtered to SPY + QQQ + DIA constituents, with names
+async function fetchIndexMovers() {
+  const all = await getAllSnapshots();
+  const filtered = all.filter((t) => INDEX_CONSTITUENTS.has(t.ticker));
   const sorted = [...filtered].sort((a, b) => (b.todaysChangePerc ?? 0) - (a.todaysChangePerc ?? 0));
+
+  const gainers = sorted.slice(0, 10);
+  const losers = sorted.slice(-10).reverse();
+  const allMovers = [...gainers, ...losers];
+
+  // Batch name lookups in parallel
+  const names = await Promise.all(allMovers.map((t) => lookupName(t.ticker)));
+  const nameMap: Record<string, string> = {};
+  allMovers.forEach((t, i) => { nameMap[t.ticker] = names[i]; });
 
   const toMover = (t: TickerSnap) => ({
     symbol: t.ticker,
-    price: t.min?.c || t.lastTrade?.p || t.day?.c || t.prevDay?.c || 0,
+    name: nameMap[t.ticker] || "",
+    price: snapPrice(t),
     chg: t.todaysChange ?? 0,
     pct: t.todaysChangePerc ?? 0,
   });
 
-  const gainers = sorted.slice(0, 10).map(toMover);
-  const losers = sorted.slice(-10).reverse().map(toMover);
+  return { gainers: gainers.map(toMover), losers: losers.map(toMover) };
+}
 
-  return { gainers, losers };
+// ── Sector ETF holdings (top constituents) ──────────────────────────────
+
+const SECTOR_HOLDINGS: Record<string, string[]> = {
+  XLK: ["AAPL","MSFT","NVDA","AVGO","CRM","ADBE","AMD","CSCO","ACN","ORCL","INTU","IBM","QCOM","TXN","NOW","AMAT","PLTR","PANW","ANET","SNPS"],
+  XLF: ["BRK.B","JPM","V","MA","BAC","WFC","GS","MS","SPGI","AXP","C","BLK","SCHW","CB","MMC","PGR","ICE","CME","AON","MCO"],
+  XLE: ["XOM","CVX","COP","EOG","SLB","MPC","PSX","VLO","OXY","HES","WMB","KMI","HAL","DVN","FANG","CTRA","BKR","OKE","TRGP","MRO"],
+  XLV: ["LLY","UNH","JNJ","ABBV","MRK","TMO","ABT","AMGN","PFE","ISRG","MDT","DHR","BSX","GILD","VRTX","SYK","REGN","BDX","CI","EW"],
+  XLI: ["GE","CAT","RTX","UNP","HON","DE","BA","LMT","ETN","TT","WM","ITW","GD","NOC","NSC","FDX","MMM","EMR","CSX","TDG"],
+  XLY: ["AMZN","TSLA","HD","MCD","LOW","BKNG","NKE","TJX","SBUX","CMG","ORLY","MAR","GM","ROST","DHI","LEN","F","DECK","ULTA","EXPE"],
+  XLP: ["PG","COST","WMT","PEP","KO","PM","MDLZ","MO","CL","TGT","KMB","GIS","STZ","SYY","KR","HSY","KDP","CLX","CHD","CAG"],
+  XLC: ["META","GOOGL","GOOG","NFLX","TMUS","DIS","T","VZ","EA","CHTR","WBD","TTWO","LYV","OMC","FOXA","FOX","MTCH","IPG","NWSA","NWS"],
+  XLU: ["NEE","SO","DUK","CEG","SRE","AEP","D","PCG","EXC","ED","XEL","WEC","ES","AWK","AEE","DTE","EIX","ETR","PPL","CMS"],
+  XLB: ["LIN","SHW","APD","ECL","FCX","NUE","NEM","VMC","MLM","DOW","DD","IFF","CF","CE","ALB","STLD","AVY","EMN","FMC","PKG"],
+  XLRE: ["PLD","AMT","EQIX","WELL","SPG","PSA","O","DLR","CCI","VICI","EXR","ARE","VTR","IRM","MAA","UDR","EQR","ESS","CPT","KIM"],
+};
+
+async function fetchSectorHoldings(etf: string) {
+  const holdings = SECTOR_HOLDINGS[etf];
+  if (!holdings) return { gainers: [], losers: [] };
+
+  const all = await getAllSnapshots();
+  const holdingSet = new Set(holdings);
+  const filtered = all.filter((t) => holdingSet.has(t.ticker));
+  const sorted = [...filtered].sort((a, b) => (b.todaysChangePerc ?? 0) - (a.todaysChangePerc ?? 0));
+
+  const toItem = (t: TickerSnap) => ({
+    symbol: t.ticker,
+    price: snapPrice(t),
+    pct: t.todaysChangePerc ?? 0,
+  });
+
+  return {
+    gainers: sorted.slice(0, 3).map(toItem),
+    losers: sorted.slice(-3).reverse().map(toItem),
+  };
 }
 
 // ── Yahoo Finance v8 chart API for FX, DXY, Crypto ─────────────────────
@@ -257,7 +319,8 @@ const SECTOR_TICKERS = [
 ];
 
 export async function POST(req: NextRequest) {
-  const { section, briefData } = await req.json();
+  const body = await req.json();
+  const { section, briefData, etf } = body;
 
   // FX via Yahoo v8 chart API (no key needed)
   if (section === "fx") {
@@ -325,6 +388,12 @@ export async function POST(req: NextRequest) {
 
     case "movers": {
       const data = await fetchIndexMovers();
+      return NextResponse.json({ data });
+    }
+
+    case "sector-holdings": {
+      if (!etf) return NextResponse.json({ error: "Missing etf param" }, { status: 400 });
+      const data = await fetchSectorHoldings(etf);
       return NextResponse.json({ data });
     }
 

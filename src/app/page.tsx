@@ -5,10 +5,12 @@ import "./globals.css";
 
 // ── Types ──
 interface QuoteItem { symbol: string; name: string; price: number; chg: number; pct: number }
-interface Mover { symbol: string; price: number; chg: number; pct: number }
+interface Mover { symbol: string; name?: string; price: number; chg: number; pct: number }
 interface MoversData { gainers: Mover[]; losers: Mover[] }
 interface EconEvent { time: string; event: string; forecast?: string | null; previous?: string | null; actual?: string | null; importance: string }
 type WeeklyCalendar = Record<string, EconEvent[]>;
+interface SectorHolding { symbol: string; price: number; pct: number }
+interface SectorDrilldown { gainers: SectorHolding[]; losers: SectorHolding[] }
 
 // ── Helpers ──
 function fmtP(p?: number) {
@@ -106,6 +108,85 @@ function TVChart({ symbol, exchange, height = 400 }: { symbol: string; exchange:
   }, [symbol, exchange, height]);
 
   return <div className="tv-chart-wrap" ref={ref} />;
+}
+
+// ── Expandable Sector Row ──
+function SectorRow({ item }: { item: QuoteItem }) {
+  const [expanded, setExpanded] = useState(false);
+  const [holdings, setHoldings] = useState<SectorDrilldown | null>(null);
+  const [loadingH, setLoadingH] = useState(false);
+
+  const pct = item.pct || 0;
+  const barW = Math.min(Math.abs(pct) * 20, 100);
+  const isPos = pct >= 0;
+
+  const toggle = async () => {
+    if (expanded) { setExpanded(false); return; }
+    setExpanded(true);
+    if (holdings) return;
+    setLoadingH(true);
+    try {
+      const res = await fetch("/api/market-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: "sector-holdings", etf: item.symbol }),
+      });
+      const json = await res.json();
+      if (res.ok) setHoldings(json.data);
+    } catch { /* ignore */ }
+    setLoadingH(false);
+  };
+
+  return (
+    <div>
+      <div className="sector-row sector-clickable" onClick={toggle}>
+        <span className="sector-sym">{item.symbol}</span>
+        <span className="sector-name">{item.name}</span>
+        <div className="sector-bar-wrap">
+          <div className="sector-bar" style={{
+            width: `${barW}%`,
+            background: isPos ? "var(--grn)" : "var(--red)",
+            opacity: 0.35,
+            [isPos ? "left" : "right"]: 0,
+          }} />
+        </div>
+        <span className="sector-pct" style={{ color: isPos ? "var(--grn)" : "var(--red)" }}>
+          {fmtPct(item.pct)}
+        </span>
+        <span className="sector-chevron">{expanded ? "▾" : "▸"}</span>
+      </div>
+      {expanded && (
+        <div className="sector-detail">
+          {loadingH ? (
+            <div className="sector-detail-loading">Loading…</div>
+          ) : holdings ? (
+            <div className="sector-detail-grid">
+              <div className="sector-detail-col">
+                <div className="sector-detail-hdr up">▲ Top 3</div>
+                {holdings.gainers.map((h) => (
+                  <div key={h.symbol} className="sector-detail-row">
+                    <span className="sector-detail-sym">{h.symbol}</span>
+                    <span className="sector-detail-price">${fmtP(h.price)}</span>
+                    <span className={`sector-detail-pct ${h.pct >= 0 ? "up" : "dn"}`}>{fmtPct(h.pct)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="sector-detail-col">
+                <div className="sector-detail-hdr dn">▼ Bottom 3</div>
+                {holdings.losers.map((h) => (
+                  <div key={h.symbol} className="sector-detail-row">
+                    <span className="sector-detail-sym">{h.symbol}</span>
+                    <span className="sector-detail-price">${fmtP(h.price)}</span>
+                    <span className={`sector-detail-pct ${h.pct >= 0 ? "up" : "dn"}`}>{fmtPct(h.pct)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Main ──
@@ -280,31 +361,9 @@ export default function Dashboard() {
           ) : errors.sectors ? (
             <div className="msg err-msg">⚠ {errors.sectors}</div>
           ) : sectors ? (
-            sectors.map((s) => {
-              const pct = s.pct || 0;
-              const barW = Math.min(Math.abs(pct) * 20, 100);
-              const isPos = pct >= 0;
-              return (
-                <div key={s.symbol} className="sector-row">
-                  <span className="sector-sym">{s.symbol}</span>
-                  <span className="sector-name">{s.name}</span>
-                  <div className="sector-bar-wrap">
-                    <div
-                      className="sector-bar"
-                      style={{
-                        width: `${barW}%`,
-                        background: isPos ? "var(--grn)" : "var(--red)",
-                        opacity: 0.35,
-                        [isPos ? "left" : "right"]: 0,
-                      }}
-                    />
-                  </div>
-                  <span className="sector-pct" style={{ color: isPos ? "var(--grn)" : "var(--red)" }}>
-                    {fmtPct(s.pct)}
-                  </span>
-                </div>
-              );
-            })
+            sectors.map((s) => (
+              <SectorRow key={s.symbol} item={s} />
+            ))
           ) : null}
 
           <div className="sh">
@@ -363,6 +422,7 @@ export default function Dashboard() {
               <div key={i} className="mover-row">
                 <div>
                   <div className="mover-sym">{m.symbol}</div>
+                  {m.name && <div className="mover-name">{m.name}</div>}
                 </div>
                 <div className="mover-right">
                   <span className="cg up">{fmtPct(m.pct)}</span>
@@ -374,7 +434,7 @@ export default function Dashboard() {
 
           <div className="sh">
             <span className="tg" style={{ color: "var(--red)" }}>▼ Top Losers</span>
-            <span className="ct">Polygon.io</span>
+            <span className="ct">SPY · QQQ · DIA</span>
           </div>
           {loading.movers ? (
             <Skeleton rows={8} />
@@ -383,6 +443,7 @@ export default function Dashboard() {
               <div key={i} className="mover-row">
                 <div>
                   <div className="mover-sym">{m.symbol}</div>
+                  {m.name && <div className="mover-name">{m.name}</div>}
                 </div>
                 <div className="mover-right">
                   <span className="cg dn">{fmtPct(m.pct)}</span>
