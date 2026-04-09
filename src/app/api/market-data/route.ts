@@ -137,30 +137,52 @@ async function fetchFXQuotes() {
   }));
 }
 
-// ── Econ calendar — Forex Factory, full week, grouped by day ────────────
+// ── Econ calendar — TradingView, full week, with actuals ────────────────
 
-interface FFEvent {
+interface TVEconEvent {
   title: string;
-  country: string;
   date: string;
-  impact: string;
-  forecast: string;
-  previous: string;
-  actual?: string;
+  actual: number | string | null;
+  forecast: number | string | null;
+  previous: number | string | null;
+  actualRaw: number | null;
+  forecastRaw: number | null;
+  previousRaw: number | null;
+  importance: number; // -1=unrated, 0=low, 1=medium/high (varies)
+}
+
+function getWeekRange() {
+  const now = new Date();
+  const day = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
+  monday.setHours(0, 0, 0, 0);
+  const saturday = new Date(monday);
+  saturday.setDate(monday.getDate() + 6);
+  return {
+    from: monday.toISOString(),
+    to: saturday.toISOString(),
+  };
 }
 
 async function fetchWeeklyEconCalendar() {
+  const { from, to } = getWeekRange();
+  const url = `https://economic-calendar.tradingview.com/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&countries=US`;
   try {
-    const r = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Origin": "https://www.tradingview.com",
+      },
       signal: AbortSignal.timeout(10000),
     });
-    if (!r.ok) throw new Error("FF API error");
-    const events: FFEvent[] = await r.json();
-    if (!Array.isArray(events)) return {};
+    if (!r.ok) throw new Error(`TV calendar ${r.status}`);
+    const data = await r.json();
+    const events: TVEconEvent[] = data?.result ?? (Array.isArray(data) ? data : []);
 
-    // Filter to US (USD) events, medium + high impact
+    // Filter to medium + high importance (importance >= 0)
     const filtered = events
-      .filter((e) => e.country === "USD" && (e.impact === "High" || e.impact === "Medium"))
+      .filter((e) => e.importance >= 0)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // Group by day
@@ -182,21 +204,27 @@ async function fetchWeeklyEconCalendar() {
         timeZone: "America/New_York",
       });
       if (!grouped[dateKey]) grouped[dateKey] = [];
+
+      const fmt = (v: number | string | null | undefined) => {
+        if (v == null || v === "") return null;
+        return String(v);
+      };
+
       grouped[dateKey].push({
         time: d.toLocaleTimeString("en-US", {
           hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "America/New_York",
         }) + " ET",
         event: e.title,
-        actual: e.actual || null,
-        forecast: e.forecast || null,
-        previous: e.previous || null,
-        importance: e.impact === "High" ? "high" : "medium",
+        actual: fmt(e.actual),
+        forecast: fmt(e.forecast),
+        previous: fmt(e.previous),
+        importance: e.importance >= 1 ? "high" : "medium",
       });
     }
 
     return grouped;
   } catch (err) {
-    console.error("Forex Factory calendar error:", err);
+    console.error("TradingView calendar error:", err);
     return {};
   }
 }

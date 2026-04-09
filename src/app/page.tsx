@@ -309,7 +309,7 @@ export default function Dashboard() {
 
           <div className="sh">
             <span className="tg">US Economic Calendar</span>
-            <span className="ct">Forex Factory · This Week</span>
+            <span className="ct">TradingView · This Week</span>
           </div>
           {loading.events ? (
             <Skeleton rows={6} />
