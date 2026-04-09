@@ -24,7 +24,7 @@ async function stockSnapshots(tickers: string[]) {
   const map: Record<string, { price: number; chg: number; pct: number }> = {};
   for (const t of d.tickers) {
     map[t.ticker] = {
-      price: t.day?.c || t.lastTrade?.p || t.prevDay?.c || 0,
+      price: t.min?.c || t.lastTrade?.p || t.day?.c || t.prevDay?.c || 0,
       chg: t.todaysChange ?? 0,
       pct: t.todaysChangePerc ?? 0,
     };
@@ -76,7 +76,7 @@ async function fetchIndexMovers() {
   const d = await pgFetch("/v2/snapshot/locale/us/markets/stocks/tickers");
   if (!d?.tickers) return { gainers: [], losers: [] };
 
-  interface TickerSnap { ticker: string; todaysChange: number; todaysChangePerc: number; day?: { c: number }; lastTrade?: { p: number } }
+  interface TickerSnap { ticker: string; todaysChange: number; todaysChangePerc: number; min?: { c: number }; day?: { c: number }; lastTrade?: { p: number }; prevDay?: { c: number } }
 
   const filtered = (d.tickers as TickerSnap[]).filter((t) => INDEX_CONSTITUENTS.has(t.ticker));
 
@@ -84,7 +84,7 @@ async function fetchIndexMovers() {
 
   const toMover = (t: TickerSnap) => ({
     symbol: t.ticker,
-    price: t.day?.c || t.lastTrade?.p || 0,
+    price: t.min?.c || t.lastTrade?.p || t.day?.c || t.prevDay?.c || 0,
     chg: t.todaysChange ?? 0,
     pct: t.todaysChangePerc ?? 0,
   });
